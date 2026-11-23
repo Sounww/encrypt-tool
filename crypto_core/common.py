@@ -19,6 +19,10 @@ class PasswordRequired(CryptoError):
     """私钥已加密，但调用方没有提供密码。"""
 
 
+class PrivateKeyGiven(CryptoError):
+    """需要公钥的地方给了私钥（可以改为从私钥提取公钥）。"""
+
+
 def require_text(value: str, what: str) -> str:
     if not value:
         raise CryptoError(f"请输入{what}")

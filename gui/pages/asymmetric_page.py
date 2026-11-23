@@ -2,13 +2,14 @@
 NAME, KEY_OPTIONS, DEFAULT_OPTION, generate_keypair(option), encrypt(text, pub), decrypt(token, priv, password)。
 """
 
+import base64
 from pathlib import Path
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QComboBox, QFileDialog, QHBoxLayout
 
 from crypto_core import keys
-from crypto_core.common import CryptoError, PasswordRequired
+from crypto_core.common import CryptoError, PasswordRequired, PrivateKeyGiven
 
 from ..widgets import (
     Card,
@@ -21,7 +22,7 @@ from ..widgets import (
 )
 from .base import BasePage
 
-_PEM_FILTER = "PEM 密钥 (*.pem *.key *.pub);;所有文件 (*)"
+_KEY_FILTER = "密钥 / 证书 (*.pem *.key *.pub *.der *.cer *.crt *.txt);;所有文件 (*)"
 
 
 class AsymmetricPage(BasePage):
@@ -41,11 +42,13 @@ class AsymmetricPage(BasePage):
             header_widgets=(field_label(option_label), self.option_combo, self.generate_btn),
         )
 
+        self.derive_pub_btn = mini_button("由私钥生成")
+        self.derive_pub_btn.setToolTip("根据右侧私钥计算出对应的公钥")
         self.import_pub_btn, self.export_pub_btn = mini_button("导入"), mini_button("导出")
         self.import_priv_btn, self.export_priv_btn = mini_button("导入"), mini_button("导出")
         self.public_panel = TextPanel(
             "公钥 PEM", "生成、导入或粘贴公钥", mono=True, pem=True, copyable=True,
-            min_height=130, actions=(self.import_pub_btn, self.export_pub_btn),
+            min_height=130, actions=(self.derive_pub_btn, self.import_pub_btn, self.export_pub_btn),
         )
         self.private_panel = TextPanel(
             "私钥 PEM", "生成、导入或粘贴私钥", mono=True, pem=True, copyable=True,
@@ -74,6 +77,7 @@ class AsymmetricPage(BasePage):
         self.add(work, 1)
 
         self.generate_btn.clicked.connect(self._generate)
+        self.derive_pub_btn.clicked.connect(self._derive_public)
         self.import_pub_btn.clicked.connect(self._import_public)
         self.export_pub_btn.clicked.connect(self._export_public)
         self.import_priv_btn.clicked.connect(self._import_private)
@@ -96,36 +100,75 @@ class AsymmetricPage(BasePage):
         self.public_panel.set_text(public_pem.strip())
         self.success(f"{self.kind} 密钥对已生成（{self.option_combo.currentText()}）")
 
-    def _import_public(self):
-        text = self._read_pem_file("导入公钥")
-        if text is None:
-            return
+    def _with_private_password(self, fn):
+        """调用 fn(password)；私钥加密时弹框要密码。用户取消返回 None，其余错误照常抛出。"""
         try:
-            keys.load_public_key(text, self.kind)
+            return fn(None)
+        except PasswordRequired:
+            password = ask_password(self, "私钥已加密", "请输入私钥密码：")
+            if password is None:
+                return None
+            return fn(password)
+
+    def _derive_public(self):
+        private_text = self.private_panel.text()
+        try:
+            pem = self._with_private_password(
+                lambda pw: keys.public_pem_from_private(private_text, pw, self.kind)
+            )
         except CryptoError as exc:
             self.show_error(exc)
             return
-        self.public_panel.set_text(text.strip())
-        self.success("公钥已导入")
+        if pem is not None:
+            self.public_panel.set_text(pem.strip())
+            self.success("已根据私钥生成公钥")
+
+    def _import_public(self):
+        text = self._read_key_file("导入公钥")
+        if text is None:
+            return
+        try:
+            pem = keys.normalize_public_pem(text, self.kind)
+            message = "公钥已导入"
+        except PrivateKeyGiven:
+            # 选中的是私钥文件：直接从私钥中提取公钥
+            try:
+                pem = self._with_private_password(
+                    lambda pw: keys.public_pem_from_private(text, pw, self.kind)
+                )
+            except CryptoError as exc:
+                self.show_error(exc)
+                return
+            if pem is None:
+                return
+            message = "选中的是私钥文件，已从中提取公钥"
+        except CryptoError as exc:
+            self.show_error(exc)
+            return
+        self.public_panel.set_text(pem.strip())
+        self.success(message)
 
     def _import_private(self):
-        text = self._read_pem_file("导入私钥")
+        text = self._read_key_file("导入私钥")
         if text is None:
             return
         try:
-            if keys.is_encrypted_pem(text):
-                password = ask_password(self, "私钥已加密", "请输入私钥密码：")
-                if password is None:
-                    self.private_panel.set_text(text.strip())
-                    self.info("已导入加密私钥，解密时需要输入密码")
-                    return
-                text = keys.unlock_private_pem(text, password, self.kind)
-            else:
-                keys.load_private_key(text, None, self.kind)
+            pem = keys.unlock_private_pem(text, None, self.kind)
+        except PasswordRequired:
+            password = ask_password(self, "私钥已加密", "请输入私钥密码：")
+            if password is None:
+                self.private_panel.set_text(text.strip())
+                self.info("已导入加密私钥，解密时需要输入密码")
+                return
+            try:
+                pem = keys.unlock_private_pem(text, password, self.kind)
+            except CryptoError as exc:
+                self.show_error(exc)
+                return
         except CryptoError as exc:
             self.show_error(exc)
             return
-        self.private_panel.set_text(text.strip())
+        self.private_panel.set_text(pem.strip())
         self.success("私钥已导入")
 
     def _export_public(self):
@@ -160,15 +203,20 @@ class AsymmetricPage(BasePage):
                 return
         self._save_pem_file("导出私钥", f"{self.kind.lower()}_private.pem", pem, "私钥已保存")
 
-    def _read_pem_file(self, title: str) -> str | None:
-        path, _ = QFileDialog.getOpenFileName(self, title, "", _PEM_FILTER)
+    def _read_key_file(self, title: str) -> str | None:
+        """读取密钥文件。文本文件按 UTF-8 读（自动去掉 BOM）；二进制 DER 文件转成 Base64 文本交给 keys 识别。"""
+        path, _ = QFileDialog.getOpenFileName(self, title, "", _KEY_FILTER)
         if not path:
             return None
         try:
-            return Path(path).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
+            raw = Path(path).read_bytes()
+        except OSError as exc:
             self.show_error(CryptoError(f"读取文件失败：{exc}"))
             return None
+        try:
+            return raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return base64.b64encode(raw).decode("ascii")
 
     def _save_pem_file(self, title: str, default_name: str, pem: str, message: str) -> None:
         path, _ = QFileDialog.getSaveFileName(self, title, default_name, "PEM 密钥 (*.pem);;所有文件 (*)")

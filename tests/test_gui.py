@@ -138,6 +138,66 @@ def test_private_key_export_with_password_then_import(app, window, monkeypatch, 
     assert page.private_panel.text() == original
 
 
+def test_derive_public_button_fills_public_panel(app, window):
+    page = window.pages["rsa"]
+    page.generate_btn.click()
+    wait_tasks(app)
+    expected = page.public_panel.text()
+    page.public_panel.clear()
+    page.derive_pub_btn.click()
+    assert page.public_panel.text() == expected
+
+
+def test_derive_public_from_encrypted_private_prompts_for_password(app, window, monkeypatch):
+    import gui.pages.asymmetric_page as page_module
+    from crypto_core import keys
+
+    page = window.pages["ecc"]
+    page.generate_btn.click()
+    wait_tasks(app)
+    expected = page.public_panel.text()
+    page.private_panel.set_text(keys.protect_private_pem(page.private_panel.text(), "kp", "ECC"))
+    page.public_panel.clear()
+    monkeypatch.setattr(page_module, "ask_password", lambda *args: "kp")
+    page.derive_pub_btn.click()
+    assert page.public_panel.text() == expected
+
+
+def _patch_open_dialog(monkeypatch, path):
+    import gui.pages.asymmetric_page as page_module
+
+    monkeypatch.setattr(page_module.QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(path), "")))
+
+
+def test_import_public_from_private_key_file_extracts_public_key(app, window, monkeypatch, tmp_path):
+    page = window.pages["rsa"]
+    page.generate_btn.click()
+    wait_tasks(app)
+    expected = page.public_panel.text()
+    key_file = tmp_path / "id_rsa.pem"
+    key_file.write_text(page.private_panel.text(), encoding="utf-8")
+    page.public_panel.clear()
+    _patch_open_dialog(monkeypatch, key_file)
+    page.import_pub_btn.click()
+    assert page.public_panel.text() == expected
+
+
+def test_import_public_from_binary_der_file(app, window, monkeypatch, tmp_path):
+    import base64
+
+    page = window.pages["rsa"]
+    page.generate_btn.click()
+    wait_tasks(app)
+    expected = page.public_panel.text()
+    body = "".join(expected.splitlines()[1:-1])
+    der_file = tmp_path / "public.der"
+    der_file.write_bytes(base64.b64decode(body))
+    page.public_panel.clear()
+    _patch_open_dialog(monkeypatch, der_file)
+    page.import_pub_btn.click()
+    assert page.public_panel.text() == expected
+
+
 def test_sha256_page_updates_live(app, window):
     page = window.pages["sha256"]
     page.input_panel.set_text("abc")
