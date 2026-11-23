@@ -13,9 +13,9 @@ from crypto_core.common import CryptoError, PasswordRequired, PrivateKeyGiven
 
 from ..widgets import (
     Card,
+    IOPanel,
     TextPanel,
     ask_password,
-    button_row,
     field_label,
     make_button,
     mini_button,
@@ -63,18 +63,13 @@ class AsymmetricPage(BasePage):
 
         # ---------- 加解密卡片 ----------
         work = Card("加解密", "使用公钥加密，使用私钥解密")
-        self.input_panel = TextPanel("输入", "输入要加密的明文，或粘贴要解密的 Base64 密文", min_height=84)
-        self.output_panel = TextPanel(
-            "输出", "结果会显示在这里", mono=True, read_only=True, copyable=True, min_height=84
-        )
-        self.encrypt_btn = make_button("公钥加密")
-        self.decrypt_btn = make_button("私钥解密", "secondary")
-        self.swap_btn = make_button("⇅  输出转为输入", "ghost")
-        self.clear_btn = make_button("清空", "ghost")
-        work.body.addWidget(self.input_panel, 1)
-        work.body.addLayout(button_row(self.encrypt_btn, self.decrypt_btn, None, self.swap_btn, self.clear_btn))
-        work.body.addWidget(self.output_panel, 1)
+        self.io = IOPanel("公钥加密", "私钥解密", "输入要加密的明文，或粘贴要解密的 Base64 密文", min_height=84)
+        work.body.addWidget(self.io, 1)
         self.add(work, 1)
+
+        self.input_panel, self.output_panel = self.io.input_panel, self.io.output_panel
+        self.encrypt_btn, self.decrypt_btn = self.io.primary_btn, self.io.secondary_btn
+        self.swap_btn, self.clear_btn = self.io.swap_btn, self.io.clear_btn
 
         self.generate_btn.clicked.connect(self._generate)
         self.derive_pub_btn.clicked.connect(self._derive_public)
@@ -84,8 +79,6 @@ class AsymmetricPage(BasePage):
         self.export_priv_btn.clicked.connect(self._export_private)
         self.encrypt_btn.clicked.connect(self._encrypt)
         self.decrypt_btn.clicked.connect(lambda: self._decrypt())
-        self.swap_btn.clicked.connect(self._swap)
-        self.clear_btn.clicked.connect(self._clear)
 
     # ---------- 密钥 ----------
     def _generate(self):
@@ -230,10 +223,6 @@ class AsymmetricPage(BasePage):
         self.success(f"{message}：{Path(path).name}")
 
     # ---------- 加解密 ----------
-    def _buttons(self, first):
-        others = [b for b in (self.encrypt_btn, self.decrypt_btn, self.swap_btn, self.clear_btn) if b is not first]
-        return (first, *others)
-
     def _show_result(self, message):
         def handler(text):
             self.output_panel.set_text(text)
@@ -243,7 +232,7 @@ class AsymmetricPage(BasePage):
     def _encrypt(self):
         self.run(
             self.cipher.encrypt, self.input_panel.text(), self.public_panel.text(),
-            on_success=self._show_result("加密完成"), busy=self._buttons(self.encrypt_btn),
+            on_success=self._show_result("加密完成"), busy=self.io.busy_buttons(self.encrypt_btn),
         )
 
     def _decrypt(self, password: str | None = None):
@@ -251,7 +240,7 @@ class AsymmetricPage(BasePage):
             self.cipher.decrypt, self.input_panel.text(), self.private_panel.text(), password,
             on_success=self._show_result("解密完成"),
             on_error=self._on_decrypt_error,
-            busy=self._buttons(self.decrypt_btn),
+            busy=self.io.busy_buttons(self.decrypt_btn),
         )
 
     def _on_decrypt_error(self, exc):
@@ -261,11 +250,3 @@ class AsymmetricPage(BasePage):
                 self._decrypt(password)
             return
         self.show_error(exc)
-
-    def _swap(self):
-        self.input_panel.set_text(self.output_panel.text())
-        self.output_panel.clear()
-
-    def _clear(self):
-        self.input_panel.clear()
-        self.output_panel.clear()

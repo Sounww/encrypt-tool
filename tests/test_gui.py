@@ -46,11 +46,44 @@ def test_stylesheet_parses_without_warnings(window, qt_messages):
 
 
 def test_sidebar_switches_every_page(app, window):
-    assert window.stack.count() == 5
-    for index in range(5):
+    assert list(window.pages) == ["aes", "rsa", "ecc", "sha256", "bcrypt", "base64"]
+    assert window.stack.count() == 6
+    for index in range(6):
         window.sidebar.select(index)
         app.processEvents()
         assert window.stack.currentIndex() == index
+
+
+def test_base64_page_round_trip(app, window):
+    page = window.pages["base64"]
+    page.input_panel.set_text("你好 Base64")
+    page.encode_btn.click()
+    assert page.output_panel.text() == "5L2g5aW9IEJhc2U2NA=="
+    page.swap_btn.click()
+    page.decode_btn.click()
+    assert page.output_panel.text() == "你好 Base64"
+
+
+def test_base64_page_url_safe_and_charset_options(app, window):
+    page = window.pages["base64"]
+    page.url_safe_check.setChecked(True)
+    page.input_panel.set_text("???")
+    page.encode_btn.click()
+    assert page.output_panel.text() == "Pz8_"
+
+    page.url_safe_check.setChecked(False)
+    page.charset_combo.setCurrentText("GBK")
+    page.input_panel.set_text("中文")
+    page.encode_btn.click()
+    assert page.output_panel.text() == "1tDOxA=="
+
+
+def test_base64_page_invalid_input_shows_error_toast(app, window):
+    page = window.pages["base64"]
+    page.input_panel.set_text("abc$")
+    page.decode_btn.click()
+    assert window.toast.isVisible()
+    assert window.toast.property("kind") == "error"
 
 
 def test_aes_page_round_trip(app, window):

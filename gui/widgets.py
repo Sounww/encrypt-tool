@@ -263,6 +263,50 @@ class OutputLine(QWidget):
         self.edit.setCursorPosition(0)
 
 
+class IOPanel(QWidget):
+    """输入框 + 操作按钮行 + 输出框。AES / RSA / ECC / Base64 页面共用。
+
+    「输出转为输入」和「清空」在组件内部处理；主次两个按钮由页面自己连接。
+    """
+
+    def __init__(self, primary_text: str, secondary_text: str, input_placeholder: str, min_height: int = 110):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        self.input_panel = TextPanel("输入", input_placeholder, min_height=min_height)
+        self.output_panel = TextPanel(
+            "输出", "结果会显示在这里", mono=True, read_only=True, copyable=True, min_height=min_height
+        )
+        self.primary_btn = make_button(primary_text)
+        self.secondary_btn = make_button(secondary_text, "secondary")
+        self.swap_btn = make_button("⇅  输出转为输入", "ghost")
+        self.clear_btn = make_button("清空", "ghost")
+
+        layout.addWidget(self.input_panel, 1)
+        layout.addLayout(
+            button_row(self.primary_btn, self.secondary_btn, None, self.swap_btn, self.clear_btn)
+        )
+        layout.addWidget(self.output_panel, 1)
+
+        self.swap_btn.clicked.connect(self._swap)
+        self.clear_btn.clicked.connect(self._clear)
+
+    def busy_buttons(self, first: QPushButton) -> tuple:
+        """后台任务运行时要禁用的按钮，first 排第一（会显示「处理中…」）。"""
+        others = [b for b in (self.primary_btn, self.secondary_btn, self.swap_btn, self.clear_btn) if b is not first]
+        return (first, *others)
+
+    def _swap(self):
+        self.input_panel.set_text(self.output_panel.text())
+        self.output_panel.clear()
+
+    def _clear(self):
+        self.input_panel.clear()
+        self.output_panel.clear()
+
+
 class Toast(QLabel):
     """父窗口右上角的浮动提示，自动淡出。"""
 

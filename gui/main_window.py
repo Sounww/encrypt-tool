@@ -5,6 +5,7 @@ from crypto_core import ecc_cipher, rsa_cipher
 
 from .pages.aes_page import AesPage
 from .pages.asymmetric_page import AsymmetricPage
+from .pages.base64_page import Base64Page
 from .pages.bcrypt_page import BcryptPage
 from .pages.sha256_page import Sha256Page
 from .sidebar import Sidebar
@@ -19,6 +20,9 @@ NAV_GROUPS = [
     ("单向哈希", [
         ("#", "SHA-256", "数据摘要 · 不可逆"),
         ("B", "bcrypt", "密码存储 · 可验证"),
+    ]),
+    ("编码转换", [
+        ("64", "Base64", "文本编码 · 可还原"),
     ]),
 ]
 
@@ -49,6 +53,7 @@ class MainWindow(QMainWindow):
             ),
             "sha256": Sha256Page(),
             "bcrypt": BcryptPage(),
+            "base64": Base64Page(),
         }
 
         root = QWidget()
